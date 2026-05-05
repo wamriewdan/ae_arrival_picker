@@ -149,9 +149,13 @@ If you use **ae_picker** in your research, please cite:
 
 > Daniel Wamriew (2026). *ae_picker: first-arrival time picking for acoustic emission waveforms*. GitHub. https://github.com/wamriewdan/ae_arrival_picker
 
-and the underlying AIC algorithm:
+the underlying AIC algorithm:
 
 > Maeda, N. (1985). A method for reading and checking phase times in auto-processing system of seismic wave data. *Zisin (Journal of the Seismological Society of Japan)*, 38, 365–379.
+
+and the STA/LTA method:
+
+> Allen, R. (1978). Automatic earthquake recognition and timing from single traces. *Bulletin of the Seismological Society of America*, 68(5), 1521–1532.
 
 ---
 
