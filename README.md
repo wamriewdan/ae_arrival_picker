@@ -147,7 +147,7 @@ ae_picker/
 
 If you use **ae_picker** in your research, please cite:
 
-> RockGem Group, KAUST (2025). *ae_picker: first-arrival time picking for acoustic emission waveforms*. GitHub. https://github.com/<your-org>/ae_picker
+> Daniel Wamriew (2026). *ae_picker: first-arrival time picking for acoustic emission waveforms*. GitHub. https://github.com/wamriewdan/ae_arrival_picker
 
 and the underlying AIC algorithm:
 
