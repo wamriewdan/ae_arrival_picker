@@ -19,8 +19,8 @@ It provides three complementary picking algorithms, format-agnostic readers, and
 ## Installation
 
 ```bash
-git clone https://github.com/<your-org>/ae_picker.git
-cd ae_picker
+git clone https://github.com/wamriewdan/ae_arrival_picker
+cd ae_arrival_picker
 pip install -e .
 ```
 
