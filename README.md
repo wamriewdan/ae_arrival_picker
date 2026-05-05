@@ -147,7 +147,7 @@ ae_picker/
 
 If you use **ae_picker** in your research, please cite:
 
-> Daniel Wamriew (2026). *ae_picker: first-arrival time picking for acoustic emission waveforms*. GitHub. https://github.com/wamriewdan/ae_arrival_picker
+> Wamriew, D. (2026). *ae_picker: first-arrival time picking for acoustic emission waveforms*. GitHub. https://github.com/wamriewdan/ae_arrival_picker
 
 the underlying AIC algorithm:
 
@@ -156,6 +156,10 @@ the underlying AIC algorithm:
 and the STA/LTA method:
 
 > Allen, R. (1978). Automatic earthquake recognition and timing from single traces. *Bulletin of the Seismological Society of America*, 68(5), 1521–1532.
+
+and its modern implementation context:
+
+> Beyreuther, M., Barsch, R., Krischer, L., Megies, T., Behr, Y., & Wassermann, J. (2010). ObsPy: A Python toolbox for seismology. *Seismological Research Letters*, 81(3), 530–533.
 
 ---
 
