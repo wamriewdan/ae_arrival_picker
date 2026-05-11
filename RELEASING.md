@@ -7,6 +7,12 @@ The repository also has a separate CI workflow that runs on every push and
 pull request to validate installation, CLI wiring, and package metadata
 without publishing anything.
 
+Relevant workflows:
+
+- `.github/workflows/ci.yml`
+- `.github/workflows/publish-testpypi.yml`
+- `.github/workflows/publish-pypi.yml`
+
 ## One-time setup
 
 1. Confirm the distribution name you want on PyPI is `ae-picker`.
@@ -33,7 +39,7 @@ without publishing anything.
 
 ## TestPyPI dry run
 
-1. Bump to a version you are comfortable publishing as a dry run.
+1. Make sure `pyproject.toml` contains the version you want to test.
 2. Commit and push the version change to `main`.
 3. In GitHub, run the `Publish to TestPyPI` workflow manually.
 4. Wait for the workflow to finish successfully.

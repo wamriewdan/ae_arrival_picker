@@ -3,9 +3,8 @@
 `ae-picker` is a Python package for automatic first-arrival time picking in
 acoustic emission (AE) and microseismic waveform data.
 
-It provides multiple picking algorithms, format-agnostic readers, batch
-processing helpers, and plotting utilities in a package that can be installed
-from PyPI or directly from source.
+It includes waveform readers, multiple picking algorithms, batch processing,
+and plotting helpers for review and comparison.
 
 ## Features
 
@@ -17,7 +16,7 @@ from PyPI or directly from source.
 
 ## Installation
 
-Install from PyPI after the package has been published:
+Install from PyPI after the package is published:
 
 ```bash
 pip install ae-picker
@@ -31,21 +30,18 @@ cd ae_arrival_picker
 pip install .
 ```
 
-For development:
+Optional extras:
 
 ```bash
 pip install -e ".[dev]"
+pip install ".[obspy]"
 ```
 
-If you want the optional ObsPy-backed recursive STA/LTA trigger:
-
-```bash
-pip install "ae-picker[obspy]"
-```
+The package is installed as `ae-picker` but imported as `ae_picker`.
 
 ## Quick start
 
-Use the Python API:
+Batch process a dataset with the Python API:
 
 ```python
 from ae_picker import run
@@ -54,13 +50,13 @@ df = run("path/to/your/data_dir", plot=False, save_plots=False)
 print(df.head())
 ```
 
-Use the CLI:
+Run the CLI:
 
 ```bash
 ae-picker path/to/your/data_dir --save-plots
 ```
 
-Single-file usage:
+Pick a single file:
 
 ```python
 from ae_picker import aic_picker, plot_channels, read_unfiltered
@@ -77,52 +73,19 @@ fig = plot_channels(meta, channels, picks={"AIC": aic_picks})
 fig.savefig("picks.png", dpi=150)
 ```
 
-## Project layout
+## Batch input layout
+
+The batch runner expects a root directory containing one or both of these
+subdirectories:
 
 ```text
-ae_arrival_picker/
-|-- ae_picker/
-|   |-- __init__.py
-|   |-- __main__.py
-|   |-- batch.py
-|   |-- cli.py
-|   |-- io.py
-|   |-- pickers.py
-|   `-- plot.py
-|-- notebooks/
-|-- pyproject.toml
-|-- README.md
-`-- LICENSE
+your_data_dir/
+|-- unfiltered_signals/
+`-- filtered_signals/
 ```
 
-## Publishing to PyPI
-
-`pip install ae-picker` only works for end users after the project is
-published under that distribution name on PyPI.
-
-Build the distribution files:
-
-```bash
-python -m build
-```
-
-Upload them:
-
-```bash
-python -m twine upload dist/*
-```
-
-If `ae-picker` is already taken on PyPI, you will need to choose a different
-distribution name. The Python import can still remain `ae_picker`.
-
-For the repository's exact GitHub Actions Trusted Publishing setup, see
-`RELEASING.md`.
-
-For a safe pre-release check, the repo also includes a separate manual
-TestPyPI workflow.
-
-Routine validation is handled by a separate CI workflow that runs on every
-push and pull request.
+`run()` and `ae-picker` scan those folders, infer the signal type from the
+folder name, and write results to `picks_output/picks_summary.csv` by default.
 
 ## License
 
