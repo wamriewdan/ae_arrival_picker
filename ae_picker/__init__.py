@@ -23,8 +23,11 @@ Quick start
 """
 
 from .io      import read_unfiltered, read_filtered
-from .pickers import aic_picker, energy_onset_picker, stalta_picker
-from .plot    import plot_channels, plot_comparison, plot_onset_zoom
+from .pickers import (aic_picker, prepend_noise_aic_picker,
+                      energy_onset_picker,
+                      envelope_onset_picker, envelope_offset_picker,
+                      stalta_picker, refined_stalta_picker)
+from .plot    import plot_channels, plot_comparison, plot_onset_zoom, plot_sta_lta_overlay
 from .batch   import pick_file, run
 
 __all__ = [
@@ -33,6 +36,7 @@ __all__ = [
     "read_filtered",
     # pickers
     "aic_picker",
+    "prepend_noise_aic_picker",
     "energy_onset_picker",
     "stalta_picker",
     # plot

@@ -131,12 +131,14 @@ def plot_comparison(df, ref_col="header_P_us", pick_cols=("aic_pick_us", "energy
     """
     Compare computed picks against a reference (e.g. header picks).
 
-    Produces two side-by-side panels:
+    Produces three panels:
 
     * **Left** — scatter plot: computed pick vs reference pick, with a 1:1
-      diagonal.  Ideal picks fall on the diagonal.
-    * **Right** — residual bar chart: (computed pick − reference) per
+      diagonal and ±1 σ uncertainty band per picker.
+    * **Centre** — residual bar chart: (computed pick − reference) per
       channel entry, one bar group per picker.
+    * **Right** — uncertainty summary: MAE and σ for every picker as a
+      grouped bar chart with error bars, and RMSE annotated as text.
 
     Parameters
     ----------
@@ -161,38 +163,69 @@ def plot_comparison(df, ref_col="header_P_us", pick_cols=("aic_pick_us", "energy
         print(f"[plot_comparison] No rows with a valid '{ref_col}' — nothing to plot.")
         return None
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
-
-    # ── left: scatter ─────────────────────────────────────────────────────
-    ax = axes[0]
     colours = _PICK_COLOURS[: len(pick_cols)]
     markers = ["o", "^", "s", "D"]
+    ref_label = ref_col.replace("_us", "").replace("_", " ").title()
+
+    # ── pre-compute per-picker residual statistics ─────────────────────────
+    stats = {}   # col → {'residuals', 'mae', 'std', 'rmse', 'bias'}
+    for col in pick_cols:
+        if col not in sub.columns:
+            continue
+        res = (sub[col] - sub[ref_col]).dropna().values
+        if len(res) == 0:
+            continue
+        stats[col] = {
+            "residuals": res,
+            "mae":  float(np.mean(np.abs(res))),
+            "std":  float(np.std(res)),
+            "bias": float(np.mean(res)),
+            "rmse": float(np.sqrt(np.mean(res ** 2))),
+        }
+
+    fig, axes = plt.subplots(1, 3, figsize=(17, 4))
+
+    # ── left: scatter with ±1σ band ───────────────────────────────────────
+    ax = axes[0]
     all_vals = [sub[ref_col].values]
 
     for col, colour, marker in zip(pick_cols, colours, markers):
-        if col not in sub.columns:
+        if col not in stats:
             continue
         vals = sub[col].values
         all_vals.append(vals[~np.isnan(vals)])
-        label = col.replace("_pick_us", "").replace("_", " ").title()
+        s = stats[col]
+        label = (f"{col.replace('_pick_us','').replace('_',' ').title()}"
+                 f"  MAE={s['mae']:.1f} µs")
         ax.scatter(sub[ref_col], vals, c=colour, marker=marker,
                    s=55, zorder=3, label=label)
 
     if all_vals:
         flat = np.concatenate([v for v in all_vals if len(v)])
-        lim  = [np.nanmin(flat) * 0.9, np.nanmax(flat) * 1.1]
-        ax.plot(lim, lim, "k--", lw=0.8, label="1 : 1")
+        lo, hi = np.nanmin(flat), np.nanmax(flat)
+        pad  = (hi - lo) * 0.1 or 5.0
+        lim  = [lo - pad, hi + pad]
+        diag = np.array(lim)
+        ax.plot(diag, diag, "k--", lw=0.8, label="1 : 1")
+
+        for col, colour in zip(pick_cols, colours):
+            if col not in stats:
+                continue
+            s = stats[col]
+            ax.fill_between(diag, diag + s["bias"] - s["std"],
+                            diag + s["bias"] + s["std"],
+                            color=colour, alpha=0.10)
+
         ax.set_xlim(lim)
         ax.set_ylim(lim)
 
-    ref_label = ref_col.replace("_us", "").replace("_", " ").title()
     ax.set_xlabel(f"{ref_label} [µs]")
     ax.set_ylabel("Computed pick [µs]")
-    ax.set_title("Picks vs reference")
-    ax.legend(fontsize=8)
+    ax.set_title("Picks vs reference  (shading = ±1 σ)")
+    ax.legend(fontsize=7)
     ax.grid(True, ls=":", alpha=0.5)
 
-    # ── right: residuals ──────────────────────────────────────────────────
+    # ── centre: per-channel residuals ─────────────────────────────────────
     ax  = axes[1]
     x   = np.arange(len(sub))
     w   = 0.8 / max(len(pick_cols), 1)
@@ -215,9 +248,42 @@ def plot_comparison(df, ref_col="header_P_us", pick_cols=("aic_pick_us", "energy
     ax.set_xticks(x)
     ax.set_xticklabels(tick_labels, fontsize=6, rotation=45, ha="right")
     ax.set_ylabel(f"Pick − {ref_label} [µs]")
-    ax.set_title("Residuals vs reference")
-    ax.legend(fontsize=8)
+    ax.set_title("Per-channel residuals")
+    ax.legend(fontsize=7)
     ax.grid(True, ls=":", alpha=0.5)
+
+    # ── right: uncertainty summary bar chart ──────────────────────────────
+    ax = axes[2]
+    valid_cols = [c for c in pick_cols if c in stats]
+    n_pickers  = len(valid_cols)
+    x2  = np.arange(n_pickers)
+    w2  = 0.35
+
+    mae_vals  = [stats[c]["mae"]  for c in valid_cols]
+    std_vals  = [stats[c]["std"]  for c in valid_cols]
+    rmse_vals = [stats[c]["rmse"] for c in valid_cols]
+    cols2     = [colours[i] for i, c in enumerate(pick_cols) if c in stats]
+
+    bars_mae = ax.bar(x2 - w2 / 2, mae_vals, w2, color=cols2, alpha=0.85,
+                      label="MAE")
+    bars_std = ax.bar(x2 + w2 / 2, std_vals, w2, color=cols2, alpha=0.45,
+                      edgecolor=cols2, linewidth=1.2, label="σ (std of residuals)")
+
+    # annotate RMSE above each group
+    for xi, rmse, col in zip(x2, rmse_vals, cols2):
+        ax.text(xi, max(mae_vals[x2.tolist().index(xi)],
+                        std_vals[x2.tolist().index(xi)]) + 0.3,
+                f"RMSE\n{rmse:.1f} µs", ha="center", va="bottom",
+                fontsize=7, color=col, fontweight="bold")
+
+    tick_names = [c.replace("_pick_us", "").replace("_", " ").title()
+                  for c in valid_cols]
+    ax.set_xticks(x2)
+    ax.set_xticklabels(tick_names, fontsize=8)
+    ax.set_ylabel("[µs]")
+    ax.set_title("Uncertainty summary")
+    ax.legend(fontsize=7)
+    ax.grid(True, ls=":", alpha=0.5, axis="y")
 
     plt.tight_layout()
 
@@ -225,6 +291,144 @@ def plot_comparison(df, ref_col="header_P_us", pick_cols=("aic_pick_us", "energy
         fig.savefig(savepath, dpi=150, bbox_inches="tight")
 
     return fig
+
+
+def plot_sta_lta_overlay(amp, time,
+                          sta_s=5e-6, lta_s=50e-6,
+                          sta_thresh=2.5, lta_thresh=1.5,
+                          triggers=None,
+                          manual_picks_s=None,
+                          manual_pick_color="red",
+                          manual_pick_label="Manual pick",
+                          tlim_us=None,
+                          use_abs=True,
+                          savepath=None):
+    """
+    Three-panel diagnostic plot for STA/LTA picking.
+
+    Panels:
+      (1) Raw waveform
+      (2) Centered STA and LTA envelopes (moving average of ``|amp|``)
+      (3) Recursive STA/LTA characteristic function with threshold lines
+
+    Parameters
+    ----------
+    amp : array-like
+        Single-channel amplitude time series.
+    time : array-like
+        Time axis (seconds).
+    sta_s, lta_s : float
+        STA and LTA window lengths (seconds).
+    sta_thresh, lta_thresh : float
+        On/off threshold lines drawn on the ratio panel.
+    triggers : list of [int, int] or None
+        ``[onset, offset]`` sample-index pairs from ``refined_stalta_picker``
+        (or the raw STA/LTA stage).  Onset markers are drawn on all panels.
+    manual_picks_s : list of float or None
+        Additional pick times (seconds) to overlay on all panels.
+    manual_pick_color : str
+        Colour for manual pick lines.  Default: ``'red'``.
+    manual_pick_label : str
+        Legend label for manual pick lines.
+    tlim_us : tuple (t0, t1) or None
+        X-axis limits in **microseconds** relative to ``time[0]``.
+        ``None`` shows the full record.
+    use_abs : bool
+        If ``True`` (default), use ``|amp|`` for STA/LTA computation.
+    savepath : str, Path, or None
+        If provided, the figure is saved to this path at 150 dpi.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+    axes : list of three ``Axes``
+    """
+    from .pickers import _moving_average
+
+    x  = np.asarray(amp,  dtype=float)
+    t  = np.asarray(time, dtype=float)
+    dt = float(np.median(np.diff(t)))
+    N  = len(x)
+
+    t_us = (t - t[0]) * 1e6
+
+    nsta = max(1, int(round(sta_s / dt)))
+    nlta = max(nsta + 1, int(round(lta_s / dt)))
+
+    a   = np.abs(x) if use_abs else x
+    sta = _moving_average(a, nsta)
+    lta = _moving_average(a, nlta)
+
+    try:
+        from obspy.signal.trigger import recursive_sta_lta
+        cft = recursive_sta_lta(x, nsta, nlta)
+    except ImportError:
+        eps = np.finfo(float).eps
+        cft = sta / np.maximum(lta, eps)
+
+    if tlim_us is not None:
+        i0 = max(0, int(tlim_us[0] / (dt * 1e6)))
+        i1 = min(N, int(tlim_us[1] / (dt * 1e6)))
+    else:
+        i0, i1 = 0, N
+
+    fig, axes = plt.subplots(3, 1, figsize=(12, 7), sharex=True)
+
+    axes[0].plot(t_us[i0:i1], x[i0:i1], lw=0.7, color="steelblue")
+    axes[0].set_ylabel("Amplitude [V]")
+    axes[0].set_title("Waveform")
+    axes[0].grid(True, ls=":", alpha=0.5)
+
+    axes[1].plot(t_us[i0:i1], sta[i0:i1], lw=0.9, color="#0072B2",
+                 label=f"STA ({sta_s*1e6:.0f} µs)")
+    axes[1].plot(t_us[i0:i1], lta[i0:i1], lw=0.9, color="#E69F00",
+                 label=f"LTA ({lta_s*1e6:.0f} µs)")
+    axes[1].set_ylabel("Avg |amp|")
+    axes[1].set_title("STA & LTA envelopes")
+    axes[1].legend(fontsize=7, loc="upper right")
+    axes[1].grid(True, ls=":", alpha=0.5)
+
+    axes[2].plot(t_us[i0:i1], cft[i0:i1], lw=0.8, color="#555555",
+                 label="STA/LTA ratio")
+    axes[2].axhline(sta_thresh, ls="--", lw=1.0, color="#009E73",
+                    label=f"Trigger on = {sta_thresh}")
+    axes[2].axhline(lta_thresh, ls=":",  lw=1.0, color="#CC79A7",
+                    label=f"Trigger off = {lta_thresh}")
+    axes[2].set_ylabel("STA/LTA")
+    axes[2].set_xlabel("Time [µs]")
+    axes[2].set_title("STA/LTA characteristic function")
+    axes[2].legend(fontsize=7, loc="upper right")
+    axes[2].grid(True, ls=":", alpha=0.5)
+
+    if triggers:
+        for j, (onset, _) in enumerate(triggers):
+            t_on = t_us[min(onset, N - 1)]
+            for ax in axes:
+                ax.axvline(t_on, color="#D55E00", lw=1.2, ls="-",
+                           label="STA/LTA pick" if j == 0 else None)
+
+    if manual_picks_s is not None:
+        for j, tp in enumerate(manual_picks_s):
+            tp_us = (tp - t[0]) * 1e6
+            for ax in axes:
+                ax.axvline(tp_us, color=manual_pick_color, lw=1.2, ls="--",
+                           label=manual_pick_label if j == 0 else None)
+
+    for ax in axes:
+        handles, labels = ax.get_legend_handles_labels()
+        seen, h2, l2 = set(), [], []
+        for h, l in zip(handles, labels):
+            if l not in seen:
+                seen.add(l); h2.append(h); l2.append(l)
+        if h2:
+            ax.legend(h2, l2, fontsize=7, loc="upper right")
+
+    plt.tight_layout()
+
+    if savepath is not None:
+        fig.savefig(savepath, dpi=150, bbox_inches="tight")
+
+    return fig, axes
 
 
 def plot_onset_zoom(files, reader_fn, zoom_us=200,

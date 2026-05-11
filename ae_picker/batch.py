@@ -16,7 +16,9 @@ import pandas as pd
 from pathlib import Path
 
 from .io      import read_unfiltered, read_filtered
-from .pickers import aic_picker, energy_onset_picker, stalta_picker
+from .pickers import (aic_picker, prepend_noise_aic_picker,
+                      energy_onset_picker, envelope_onset_picker,
+                      stalta_picker, refined_stalta_picker)
 from .plot    import plot_channels
 
 
@@ -44,6 +46,9 @@ def pick_file(filepath, signal_type,
               aic_search_frac_filtered=(0.30, 0.70),
               energy_noise_s=25e-6, energy_threshold=3.0,
               sta_s=5e-6, lta_s=50e-6, stalta_threshold=3.0,
+              refined_sta_thresh=2.5, refined_lta_thresh=1.5,
+              envelope_k_high=6.0, envelope_k_low=2.5,
+              prepend_duration_s=50e-6,
               plot=True, save_plots=True, output_dir=None):
     """
     Pick all channels in a single AE waveform file.
@@ -54,9 +59,14 @@ def pick_file(filepath, signal_type,
     signal_type : {'unfiltered', 'filtered'}
         Determines which reader and default search windows are used.
     pickers : tuple of str
-        Any subset of ``('aic', 'energy', 'stalta')``.  All listed pickers
-        are run; pickers not listed produce NaN columns in the output so the
-        result schema is always the same regardless of which pickers are used.
+        Any subset of
+        ``('aic', 'aic_prepend', 'energy', 'envelope', 'stalta', 'refined_stalta')``.
+        ``'aic'`` is the original baseline AIC picker.
+        ``'aic_prepend'`` prepends synthetic Gaussian noise before AIC.
+        ``'envelope'`` uses Hilbert-envelope hysteresis with MAD noise stats.
+        ``'refined_stalta'`` runs recursive STA/LTA then refines the onset
+        with the envelope picker.
+        All listed pickers are run; unlisted pickers produce NaN columns.
     aic_search_frac_unfiltered : tuple (start_frac, end_frac)
         AIC search window expressed as fractions of the record length, used
         for **unfiltered** files.  Default ``(0.0005, 0.005)`` ≈ 1–50 µs
@@ -71,7 +81,16 @@ def pick_file(filepath, signal_type,
     sta_s, lta_s : float
         STA and LTA window lengths for ``stalta_picker`` (seconds).
     stalta_threshold : float
-        STA/LTA trigger ratio.
+        STA/LTA trigger ratio for the classical ``stalta_picker``.
+    refined_sta_thresh, refined_lta_thresh : float
+        Trigger-on / trigger-off thresholds for ``refined_stalta_picker``.
+    envelope_k_high, envelope_k_low : float
+        MAD multipliers for ``envelope_onset_picker`` and
+        ``refined_stalta_picker``'s refinement stage.
+    prepend_duration_s : float
+        Duration of the synthetic noise window prepended before running
+        ``prepend_noise_aic_picker`` (seconds).  Default: 50 µs.  Only used
+        when ``'aic_prepend'`` is in *pickers*.
     plot : bool
         If ``True``, a channel plot is produced for each file.
     save_plots : bool
@@ -86,10 +105,11 @@ def pick_file(filepath, signal_type,
         One dict per channel with keys::
 
             file, signal_type, channel,
-            aic_pick_s,    aic_pick_us,
-            energy_pick_s, energy_pick_us,
-            stalta_pick_s, stalta_pick_us,
-            header_P_s,    header_S_s
+            aic_pick_s,         aic_pick_us,
+            aic_prepend_pick_s, aic_prepend_pick_us,
+            energy_pick_s,      energy_pick_us,
+            stalta_pick_s,      stalta_pick_us,
+            header_P_s,         header_S_s
     """
     filepath = Path(filepath)
 
@@ -104,22 +124,33 @@ def pick_file(filepath, signal_type,
     ss = max(1, int(aic_frac[0] * N))
     se = max(ss + 2, int(aic_frac[1] * N))
 
-    aic_idxs    = []
-    energy_idxs = []
-    stalta_idxs = []
-    results     = []
+    aic_idxs              = []
+    aic_prepend_idxs      = []
+    energy_idxs           = []
+    envelope_idxs         = []
+    stalta_idxs           = []
+    refined_stalta_idxs   = []
+    results               = []
 
     for ch in channels:
         t, amp = ch["time"], ch["amp"]
 
-        # ── AIC ──────────────────────────────────────────────────────────
+        # ── AIC (baseline) ────────────────────────────────────────────────
         if "aic" in pickers:
             p_aic, _ = aic_picker(amp, search_start=ss, search_end=se)
         else:
             p_aic = None
         aic_idxs.append(p_aic)
 
-        # ── Energy onset ─────────────────────────────────────────────────
+        # ── AIC with prepended noise ──────────────────────────────────────
+        if "aic_prepend" in pickers:
+            p_pre, _, _ = prepend_noise_aic_picker(
+                amp, t, prepend_duration_s=prepend_duration_s)
+        else:
+            p_pre = None
+        aic_prepend_idxs.append(p_pre)
+
+        # ── Energy onset ──────────────────────────────────────────────────
         if "energy" in pickers:
             p_en = energy_onset_picker(amp, t,
                                        noise_window_s=energy_noise_s,
@@ -128,7 +159,19 @@ def pick_file(filepath, signal_type,
             p_en = None
         energy_idxs.append(p_en)
 
-        # ── STA/LTA ───────────────────────────────────────────────────────
+        # ── Envelope onset (Hilbert + MAD) ────────────────────────────────
+        if "envelope" in pickers:
+            p_env = envelope_onset_picker(
+                amp, t,
+                search_start_s=t[ss],
+                search_end_s=t[se],
+                k_high=envelope_k_high,
+                k_low=envelope_k_low)
+        else:
+            p_env = None
+        envelope_idxs.append(p_env)
+
+        # ── Classical STA/LTA ─────────────────────────────────────────────
         if "stalta" in pickers:
             p_sl, _ = stalta_picker(amp, t, sta_s=sta_s, lta_s=lta_s,
                                     threshold=stalta_threshold,
@@ -137,32 +180,62 @@ def pick_file(filepath, signal_type,
             p_sl = None
         stalta_idxs.append(p_sl)
 
+        # ── Refined STA/LTA ───────────────────────────────────────────────
+        if "refined_stalta" in pickers:
+            p_rs, _, _ = refined_stalta_picker(
+                amp, t, sta_s=sta_s, lta_s=lta_s,
+                sta_thresh=refined_sta_thresh,
+                lta_thresh=refined_lta_thresh,
+                k_high=envelope_k_high,
+                k_low=envelope_k_low)
+        else:
+            p_rs = None
+        refined_stalta_idxs.append(p_rs)
+
         t_aic = _t(ch, p_aic)
+        t_pre = _t(ch, p_pre)
         t_en  = _t(ch, p_en)
+        t_env = _t(ch, p_env)
         t_sl  = _t(ch, p_sl)
+        t_rs  = _t(ch, p_rs)
+
+        def _us(val):
+            return val * 1e6 if not np.isnan(val) else np.nan
 
         results.append({
-            "file":          filepath.name,
-            "signal_type":   signal_type,
-            "channel":       len(results) + 1,
-            "aic_pick_s":    t_aic,
-            "aic_pick_us":   t_aic * 1e6 if not np.isnan(t_aic) else np.nan,
-            "energy_pick_s": t_en,
-            "energy_pick_us":t_en  * 1e6 if not np.isnan(t_en)  else np.nan,
-            "stalta_pick_s": t_sl,
-            "stalta_pick_us":t_sl  * 1e6 if not np.isnan(t_sl)  else np.nan,
-            "header_P_s":    meta.get("pick_P_s", np.nan),
-            "header_S_s":    meta.get("pick_S_s", np.nan),
+            "file":                      filepath.name,
+            "signal_type":               signal_type,
+            "channel":                   len(results) + 1,
+            "aic_pick_s":                t_aic,
+            "aic_pick_us":               _us(t_aic),
+            "aic_prepend_pick_s":        t_pre,
+            "aic_prepend_pick_us":       _us(t_pre),
+            "energy_pick_s":             t_en,
+            "energy_pick_us":            _us(t_en),
+            "envelope_pick_s":           t_env,
+            "envelope_pick_us":          _us(t_env),
+            "stalta_pick_s":             t_sl,
+            "stalta_pick_us":            _us(t_sl),
+            "refined_stalta_pick_s":     t_rs,
+            "refined_stalta_pick_us":    _us(t_rs),
+            "header_P_s":                meta.get("pick_P_s", np.nan),
+            "header_S_s":                meta.get("pick_S_s", np.nan),
         })
 
     if plot:
         picks_for_plot = {}
-        if "aic"    in pickers:
-            picks_for_plot["AIC"]    = aic_idxs
-        if "energy" in pickers:
-            picks_for_plot["Energy"] = energy_idxs
-        if "stalta" in pickers:
-            picks_for_plot["STA/LTA"] = stalta_idxs
+        if "aic"             in pickers:
+            picks_for_plot["AIC"]             = aic_idxs
+        if "aic_prepend"     in pickers:
+            picks_for_plot["AIC+prepend"]     = aic_prepend_idxs
+        if "energy"          in pickers:
+            picks_for_plot["Energy"]          = energy_idxs
+        if "envelope"        in pickers:
+            picks_for_plot["Envelope"]        = envelope_idxs
+        if "stalta"          in pickers:
+            picks_for_plot["STA/LTA"]         = stalta_idxs
+        if "refined_stalta"  in pickers:
+            picks_for_plot["Refined STA/LTA"] = refined_stalta_idxs
 
         savepath = None
         if save_plots and output_dir is not None:
@@ -180,6 +253,7 @@ def pick_file(filepath, signal_type,
 
 def run(data_dir, signal_dirs=("unfiltered_signals", "filtered_signals"),
         output_dir=None, pickers=("aic", "energy"),
+        prepend_duration_s=50e-6,
         plot=True, save_plots=True):
     """
     Batch-process all ``.txt`` waveform files found under *data_dir*.
@@ -200,7 +274,9 @@ def run(data_dir, signal_dirs=("unfiltered_signals", "filtered_signals"),
         Where to write ``picks_summary.csv`` and PNG figures.
         Defaults to ``data_dir / 'picks_output'``.
     pickers : tuple of str
-        Any subset of ``('aic', 'energy', 'stalta')``.
+        Any subset of ``('aic', 'aic_prepend', 'energy', 'stalta')``.
+    prepend_duration_s : float
+        Noise prepend duration passed to ``prepend_noise_aic_picker``.
     plot : bool
         Produce a per-file waveform plot.
     save_plots : bool
@@ -216,7 +292,6 @@ def run(data_dir, signal_dirs=("unfiltered_signals", "filtered_signals"),
     output_dir = Path(output_dir) if output_dir else data_dir / "picks_output"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Map directory name fragment → signal_type string
     _type_map = {"unfiltered": "unfiltered", "filtered": "filtered"}
 
     all_results = []
@@ -227,7 +302,6 @@ def run(data_dir, signal_dirs=("unfiltered_signals", "filtered_signals"),
             print(f"[ae_picker.batch] Skipping '{folder}' — directory not found.")
             continue
 
-        # Infer signal type from directory name
         signal_type = None
         for key, val in _type_map.items():
             if key in sub.lower():
@@ -244,6 +318,7 @@ def run(data_dir, signal_dirs=("unfiltered_signals", "filtered_signals"),
             print(f"  {fp.name}")
             rows = pick_file(fp, signal_type,
                              pickers=pickers,
+                             prepend_duration_s=prepend_duration_s,
                              plot=plot, save_plots=save_plots,
                              output_dir=output_dir)
             all_results.extend(rows)
