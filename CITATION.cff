@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: "If you use ae-picker in your research, please cite it using this metadata."
+title: "ae-picker"
+type: software
+authors:
+  - given-names: "Daniel"
+    family-names: "Wamriew"
+    email: "wamriewdan@gmail.com"
+version: "0.2.0"
+abstract: "A Python package for automatic first-arrival time picking in acoustic emission and microseismic waveform data."
+keywords:
+  - acoustic emission
+  - microseismic
+  - signal processing
+  - arrival picking
+  - seismology
+license: "MIT"
+repository-code: "https://github.com/wamriewdan/ae_arrival_picker"
+url: "https://github.com/wamriewdan/ae_arrival_picker"
