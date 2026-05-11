@@ -1,0 +1,35 @@
+# Generated output
+picks_output/
+
+# Data files (distributed separately — not committed)
+unfiltered_signals/
+filtered_signals/
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code
+.claude/
+
+
+# IDE
+.vscode/
+.idea/
+*.code-workspace
+
+# Reference files
+sta_lta_utils.py
