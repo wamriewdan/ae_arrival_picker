@@ -17,7 +17,7 @@ from pathlib import Path
 
 from .io      import read_unfiltered, read_filtered
 from .pickers import (aic_picker, prepend_noise_aic_picker,
-                      energy_onset_picker, envelope_onset_picker,
+                      envelope_onset_picker,
                       stalta_picker, refined_stalta_picker)
 from .plot    import plot_channels
 
@@ -41,12 +41,12 @@ def _t(ch, idx):
 # ── public API ────────────────────────────────────────────────────────────────
 
 def pick_file(filepath, signal_type,
-              pickers=("aic", "energy"),
+              pickers=("aic", "refined_stalta"),
               aic_search_frac_unfiltered=(0.0005, 0.005),
               aic_search_frac_filtered=(0.30, 0.70),
-              energy_noise_s=25e-6, energy_threshold=3.0,
               sta_s=5e-6, lta_s=50e-6, stalta_threshold=3.0,
               refined_sta_thresh=2.5, refined_lta_thresh=1.5,
+              refined_search_start_frac=0.0,
               envelope_k_high=6.0, envelope_k_low=2.5,
               prepend_duration_s=50e-6,
               plot=True, save_plots=True, output_dir=None):
@@ -60,7 +60,7 @@ def pick_file(filepath, signal_type,
         Determines which reader and default search windows are used.
     pickers : tuple of str
         Any subset of
-        ``('aic', 'aic_prepend', 'energy', 'envelope', 'stalta', 'refined_stalta')``.
+        ``('aic', 'aic_prepend', 'envelope', 'stalta', 'refined_stalta')``.
         ``'aic'`` is the original baseline AIC picker.
         ``'aic_prepend'`` prepends synthetic Gaussian noise before AIC.
         ``'envelope'`` uses Hilbert-envelope hysteresis with MAD noise stats.
@@ -74,10 +74,6 @@ def pick_file(filepath, signal_type,
     aic_search_frac_filtered : tuple (start_frac, end_frac)
         AIC search window for **filtered** files.  Default ``(0.30, 0.70)``
         searches the central 40 % of the ±250 µs record.
-    energy_noise_s : float
-        Noise window duration for ``energy_onset_picker`` (seconds).
-    energy_threshold : float
-        Energy trigger ratio for ``energy_onset_picker``.
     sta_s, lta_s : float
         STA and LTA window lengths for ``stalta_picker`` (seconds).
     stalta_threshold : float
@@ -105,11 +101,11 @@ def pick_file(filepath, signal_type,
         One dict per channel with keys::
 
             file, signal_type, channel,
-            aic_pick_s,         aic_pick_us,
-            aic_prepend_pick_s, aic_prepend_pick_us,
-            energy_pick_s,      energy_pick_us,
-            stalta_pick_s,      stalta_pick_us,
-            header_P_s,         header_S_s
+            aic_pick_s,            aic_pick_us,
+            aic_prepend_pick_s,    aic_prepend_pick_us,
+            stalta_pick_s,         stalta_pick_us,
+            refined_stalta_pick_s, refined_stalta_pick_us,
+            header_P_s,            header_S_s
     """
     filepath = Path(filepath)
 
@@ -126,7 +122,6 @@ def pick_file(filepath, signal_type,
 
     aic_idxs              = []
     aic_prepend_idxs      = []
-    energy_idxs           = []
     envelope_idxs         = []
     stalta_idxs           = []
     refined_stalta_idxs   = []
@@ -149,15 +144,6 @@ def pick_file(filepath, signal_type,
         else:
             p_pre = None
         aic_prepend_idxs.append(p_pre)
-
-        # ── Energy onset ──────────────────────────────────────────────────
-        if "energy" in pickers:
-            p_en = energy_onset_picker(amp, t,
-                                       noise_window_s=energy_noise_s,
-                                       threshold=energy_threshold)
-        else:
-            p_en = None
-        energy_idxs.append(p_en)
 
         # ── Envelope onset (Hilbert + MAD) ────────────────────────────────
         if "envelope" in pickers:
@@ -187,14 +173,14 @@ def pick_file(filepath, signal_type,
                 sta_thresh=refined_sta_thresh,
                 lta_thresh=refined_lta_thresh,
                 k_high=envelope_k_high,
-                k_low=envelope_k_low)
+                k_low=envelope_k_low,
+                search_start=int(refined_search_start_frac * N))
         else:
             p_rs = None
         refined_stalta_idxs.append(p_rs)
 
         t_aic = _t(ch, p_aic)
         t_pre = _t(ch, p_pre)
-        t_en  = _t(ch, p_en)
         t_env = _t(ch, p_env)
         t_sl  = _t(ch, p_sl)
         t_rs  = _t(ch, p_rs)
@@ -210,8 +196,6 @@ def pick_file(filepath, signal_type,
             "aic_pick_us":               _us(t_aic),
             "aic_prepend_pick_s":        t_pre,
             "aic_prepend_pick_us":       _us(t_pre),
-            "energy_pick_s":             t_en,
-            "energy_pick_us":            _us(t_en),
             "envelope_pick_s":           t_env,
             "envelope_pick_us":          _us(t_env),
             "stalta_pick_s":             t_sl,
@@ -228,8 +212,6 @@ def pick_file(filepath, signal_type,
             picks_for_plot["AIC"]             = aic_idxs
         if "aic_prepend"     in pickers:
             picks_for_plot["AIC+prepend"]     = aic_prepend_idxs
-        if "energy"          in pickers:
-            picks_for_plot["Energy"]          = energy_idxs
         if "envelope"        in pickers:
             picks_for_plot["Envelope"]        = envelope_idxs
         if "stalta"          in pickers:
@@ -252,7 +234,7 @@ def pick_file(filepath, signal_type,
 
 
 def run(data_dir, signal_dirs=("unfiltered_signals", "filtered_signals"),
-        output_dir=None, pickers=("aic", "energy"),
+        output_dir=None, pickers=("aic", "refined_stalta"),
         prepend_duration_s=50e-6,
         plot=True, save_plots=True):
     """

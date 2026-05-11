@@ -126,7 +126,7 @@ def plot_channels(meta, channels, picks, signal_type="unfiltered",
     return fig
 
 
-def plot_comparison(df, ref_col="header_P_us", pick_cols=("aic_pick_us", "energy_pick_us"),
+def plot_comparison(df, ref_col="header_P_us", pick_cols=("aic_pick_us", "refined_stalta_pick_us"),
                     savepath=None):
     """
     Compare computed picks against a reference (e.g. header picks).
@@ -432,14 +432,13 @@ def plot_sta_lta_overlay(amp, time,
 
 
 def plot_onset_zoom(files, reader_fn, zoom_us=200,
-                    noise_window_s=25e-6, energy_threshold=3.0,
                     aic_search_end=10, savepath_dir=None):
     """
     Side-by-side channel zoom browser — one figure per file.
 
     For each file, plots the first ``zoom_us`` microseconds of every channel
-    with AIC and energy-onset picks overlaid.  Designed for rapid visual QC
-    of a batch of unfiltered records.
+    with AIC picks overlaid.  Designed for rapid visual QC of a batch of
+    unfiltered records.
 
     Parameters
     ----------
@@ -450,10 +449,6 @@ def plot_onset_zoom(files, reader_fn, zoom_us=200,
         accepts a file path and returns ``(meta, channels)``.
     zoom_us : float
         X-axis width in microseconds.  Default: 200 µs.
-    noise_window_s : float
-        Noise window for ``energy_onset_picker``.  Default: 25 µs.
-    energy_threshold : float
-        Energy trigger ratio.  Default: 3.0.
     aic_search_end : int
         ``search_end`` passed to ``aic_picker``.  Default: 10 samples.
     savepath_dir : Path or None
@@ -464,7 +459,7 @@ def plot_onset_zoom(files, reader_fn, zoom_us=200,
     -------
     figures : list of matplotlib.figure.Figure
     """
-    from .pickers import aic_picker, energy_onset_picker
+    from .pickers import aic_picker
 
     figures = []
     for fp in files:
@@ -486,15 +481,9 @@ def plot_onset_zoom(files, reader_fn, zoom_us=200,
 
             p_aic, _ = aic_picker(amp, search_start=1,
                                   search_end=aic_search_end)
-            p_en     = energy_onset_picker(amp, t,
-                                           noise_window_s=noise_window_s,
-                                           threshold=energy_threshold)
 
             ax.axvline(t[p_aic] * 1e6, color="crimson", lw=1.5, ls="-",
                        label=f"AIC {t[p_aic]*1e6:.1f} µs")
-            if p_en is not None:
-                ax.axvline(t[p_en] * 1e6, color="darkorange", lw=1.5, ls="--",
-                           label=f"Energy {t[p_en]*1e6:.1f} µs")
 
             pP = meta.get("pick_P_s", np.nan)
             if not np.isnan(pP):

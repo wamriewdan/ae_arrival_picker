@@ -10,7 +10,6 @@ Algorithms
 ----------
 aic_picker                Maeda (1985) AIC criterion  — recommended primary picker
 prepend_noise_aic_picker  AIC with synthetic pre-noise window prepended
-energy_onset_picker       Energy-ratio onset detector — robust fallback
 envelope_onset_picker     Hilbert-envelope onset with MAD noise stats + persistence
 envelope_offset_picker    Hilbert-envelope offset (end-of-event) detector
 stalta_picker             Classical STA/LTA ratio picker
@@ -20,8 +19,6 @@ Picking strategy (Maria dataset)
 ---------------------------------
 * **Unfiltered signals** (record starts at onset, P arrives in first ~20 µs):
   Use ``aic_picker`` with ``search_end ≈ 10 samples`` (50 µs at 200 kHz).
-  Expanding the window causes the global AIC minimum to drift to later
-  high-energy coda features.  Use ``energy_onset_picker`` as a cross-check.
 
 * **Filtered signals** (record centred at t = 0, ±250 µs window):
   Use ``aic_picker`` over the central 40 % of the record.
@@ -199,56 +196,6 @@ def prepend_noise_aic_picker(amp, time, n_prepend=None, prepend_duration_s=50e-6
     pick_idx   = max(0, padded_idx - n_prepend)
     return pick_idx, aic_padded, n_prepend
 
-
-def energy_onset_picker(amp, time, noise_window_s=25e-6, threshold=3.0,
-                         search_start=1):
-    """
-    Energy-ratio first-arrival picker.
-
-    Returns the first sample index at which the instantaneous energy
-    ``amp[i]²`` exceeds ``threshold`` times the background energy level
-    estimated from the pre-onset noise window.
-
-    This picker is robust when the record begins immediately at the onset
-    (leaving too few samples for reliable AIC variance estimation) or when
-    the signal-to-noise ratio is low.
-
-    Parameters
-    ----------
-    amp : array-like
-        Single-channel amplitude time series.
-    time : array-like
-        Corresponding time axis (seconds).  Used only to convert
-        ``noise_window_s`` to a sample count.
-    noise_window_s : float
-        Duration of the pre-onset noise window used to estimate background
-        energy (seconds).  Default: 25 µs.
-    threshold : float
-        Energy trigger ratio: pick fires when ``amp[i]² > threshold × bg``.
-        Default: 3.0 (energy must be 3× the background level).
-    search_start : int
-        First sample index to evaluate.  Default: 1 (skip index 0 to
-        avoid triggering on the very first sample).
-
-    Returns
-    -------
-    pick_idx : int or None
-        Sample index of the first detected onset, or ``None`` if the
-        threshold is never exceeded within the record.
-    """
-    x  = np.asarray(amp, dtype=float)
-    t  = np.asarray(time, dtype=float)
-    dt = float(np.median(np.diff(t)))
-
-    n_noise = max(2, int(round(noise_window_s / dt)))
-    bg = np.mean(x[:n_noise] ** 2)
-    if bg == 0:
-        return None
-
-    for i in range(search_start, len(x)):
-        if x[i] ** 2 > threshold * bg:
-            return i
-    return None
 
 
 def envelope_onset_picker(amp, time, search_start_s=None, search_end_s=None,
@@ -462,7 +409,8 @@ def refined_stalta_picker(amp, time,
                            k_high=6.0, k_low=2.5,
                            min_persist_ms=0.3,
                            pre_pick_s=50e-6, post_pick_s=200e-6,
-                           post_offset_s=500e-6, end_persist_ms=0.05):
+                           post_offset_s=500e-6, end_persist_ms=0.05,
+                           search_start=0):
     """
     Recursive STA/LTA trigger followed by envelope-refined onset picking.
 
@@ -508,6 +456,12 @@ def refined_stalta_picker(amp, time,
         refined onset.  Default: 500 µs.
     end_persist_ms : float
         Persistence duration (ms) for offset detection.  Default: 0.05 ms.
+    search_start : int
+        First sample index at which a trigger is allowed to fire.  Triggers
+        whose onset falls before this index are discarded.  Useful for
+        filtered records centred at t=0 where arrivals cannot precede a known
+        index (e.g. pass the index of t=0 to prevent pre-onset false triggers).
+        Default: 0 (no restriction).
 
     Returns
     -------
@@ -551,6 +505,9 @@ def refined_stalta_picker(amp, time,
                 in_trig = False
         if in_trig and onset is not None:
             raw_triggers.append([onset, N - 1])
+
+    # Discard triggers that fired before the allowed search window
+    raw_triggers = [tr for tr in raw_triggers if tr[0] >= search_start]
 
     if not raw_triggers:
         return None, cft, raw_triggers

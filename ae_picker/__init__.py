@@ -7,7 +7,7 @@ and microseismic waveform data.
 Modules
 -------
 io       : file readers  (``read_unfiltered``, ``read_filtered``)
-pickers  : picking algorithms  (AIC, energy-onset, STA/LTA)
+pickers  : picking algorithms  (AIC, STA/LTA)
 plot     : visualisation helpers
 batch    : single-file and batch processing
 
@@ -24,7 +24,6 @@ Quick start
 
 from .io      import read_unfiltered, read_filtered
 from .pickers import (aic_picker, prepend_noise_aic_picker,
-                      energy_onset_picker,
                       envelope_onset_picker, envelope_offset_picker,
                       stalta_picker, refined_stalta_picker)
 from .plot    import plot_channels, plot_comparison, plot_onset_zoom, plot_sta_lta_overlay
@@ -37,8 +36,8 @@ __all__ = [
     # pickers
     "aic_picker",
     "prepend_noise_aic_picker",
-    "energy_onset_picker",
     "stalta_picker",
+    "refined_stalta_picker",
     # plot
     "plot_channels",
     "plot_comparison",
@@ -48,5 +47,5 @@ __all__ = [
     "run",
 ]
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 __author__  = "RockGem Group, KAUST"
