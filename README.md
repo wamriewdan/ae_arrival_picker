@@ -19,8 +19,8 @@ It provides three complementary picking algorithms, format-agnostic readers, and
 ## Installation
 
 ```bash
-git clone https://github.com/<your-org>/ae_picker.git
-cd ae_picker
+git clone https://github.com/wamriewdan/ae_arrival_picker
+cd ae_arrival_picker
 pip install -e .
 ```
 
@@ -147,11 +147,19 @@ ae_picker/
 
 If you use **ae_picker** in your research, please cite:
 
-> RockGem Group, KAUST (2025). *ae_picker: first-arrival time picking for acoustic emission waveforms*. GitHub. https://github.com/<your-org>/ae_picker
+> Wamriew, D. (2026). *ae_picker: first-arrival time picking for acoustic emission waveforms*. GitHub. https://github.com/wamriewdan/ae_arrival_picker
 
-and the underlying AIC algorithm:
+the underlying AIC algorithm:
 
 > Maeda, N. (1985). A method for reading and checking phase times in auto-processing system of seismic wave data. *Zisin (Journal of the Seismological Society of Japan)*, 38, 365–379.
+
+and the STA/LTA method:
+
+> Allen, R. (1978). Automatic earthquake recognition and timing from single traces. *Bulletin of the Seismological Society of America*, 68(5), 1521–1532.
+
+and its modern implementation context:
+
+> Beyreuther, M., Barsch, R., Krischer, L., Megies, T., Behr, Y., & Wassermann, J. (2010). ObsPy: A Python toolbox for seismology. *Seismological Research Letters*, 81(3), 530–533.
 
 ---
 
