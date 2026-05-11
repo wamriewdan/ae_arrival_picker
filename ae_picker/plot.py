@@ -14,11 +14,16 @@ plot_comparison(df, ref_col, pick_cols, ...)
     Scatter + residual chart comparing computed picks to a reference.
 plot_onset_zoom(files, reader_fn, ...)
     Side-by-side channel zoom browser for rapid visual QC.
+plot_sta_lta_overlay(amp, time, ...)
+    Three-panel STA/LTA diagnostic: waveform, STA & LTA envelopes, ratio + thresholds.
+plot_wave_and_spectrogram(amp, time, ...)
+    Two-panel journal-ready waveform + PSD spectrogram.
 """
 
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
+from matplotlib.gridspec import GridSpec
 from pathlib import Path
 
 
@@ -429,6 +434,156 @@ def plot_sta_lta_overlay(amp, time,
         fig.savefig(savepath, dpi=150, bbox_inches="tight")
 
     return fig, axes
+
+
+def plot_wave_and_spectrogram(amp, time,
+                              fmax=None, nperseg=None, overlap=0.90,
+                              dyn_range_db=80, norm_percentile=99.9,
+                              dpi=150, title=None,
+                              tmin=None, tmax=None,
+                              ypad=0.1, fig_size=(7.0, 4.5),
+                              savepath=None):
+    """
+    Two-panel waveform + PSD spectrogram with a shared time axis.
+
+    Spectrogram quantity
+    --------------------
+    Power Spectral Density (PSD) via Welch's method (Hann window,
+    ``scaling='density'``) expressed in dB:
+
+        PSD_dB = 10 · log₁₀( Sxx / (1 unit²/Hz) )
+
+    The dB *differences* (dynamic range) are what matter for visualisation;
+    the absolute values are negative because Sxx << 1 for any normalised signal.
+
+    Parameters
+    ----------
+    amp : array-like
+        Single-channel amplitude time series.
+    time : array-like
+        Corresponding time axis (seconds).
+    fmax : float or None
+        Upper frequency bound to display (Hz).  ``None`` shows up to Nyquist.
+    nperseg : int or None
+        STFT window length (samples).  ``None`` → auto (~2 ms at the inferred
+        sampling rate).
+    overlap : float
+        Fractional window overlap in ``[0, 1)``.  Default: 0.90.
+    dyn_range_db : float
+        Colour dynamic range in dB.  Default: 80.
+    norm_percentile : float
+        Percentile used to normalise the waveform for display.  Default: 99.9.
+    dpi : int
+        Figure resolution.  Default: 150.
+    title : str or None
+        Title placed above the waveform panel.
+    tmin, tmax : float or None
+        Display window start and end (seconds, same units as ``time``).
+        ``None`` → full record.
+    ypad : float
+        Fractional y-axis padding for the waveform panel.  Default: 0.1.
+    fig_size : tuple
+        Figure size ``(width, height)`` in inches.  Default: ``(7.0, 4.5)``.
+    savepath : str, Path, or None
+        If provided, the figure is saved to this path.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+    (ax_wave, ax_spec) : tuple of two ``Axes``
+    """
+    from scipy.signal import spectrogram as _spectrogram, get_window
+
+    x  = np.asarray(amp,  dtype=float)
+    t  = np.asarray(time, dtype=float)
+    dt = float(np.median(np.diff(t)))
+    fs = 1.0 / dt
+    N  = len(x)
+
+    t0 = float(tmin) if tmin is not None else t[0]
+    t1 = float(tmax) if tmax is not None else t[-1]
+    if t0 >= t1:
+        raise ValueError(f"tmin ({t0}) must be less than tmax ({t1}).")
+
+    scale = np.nanpercentile(np.abs(x), norm_percentile)
+    if not np.isfinite(scale) or scale == 0:
+        scale = np.max(np.abs(x)) or 1.0
+    x_norm = x / scale
+
+    view_mask = (t >= t0) & (t <= t1)
+    x_view    = x_norm[view_mask]
+    y_abs     = np.max(np.abs(x_view)) if x_view.size else 1.0
+    y_lim     = y_abs * (1.0 + ypad)
+
+    if nperseg is None:
+        nperseg = int(0.002 * fs)
+    nperseg  = int(2 ** np.ceil(np.log2(max(256, nperseg))))
+    noverlap = int(overlap * nperseg)
+
+    f_ax, t_spec, Sxx = _spectrogram(
+        x, fs=fs,
+        window=get_window("hann", nperseg),
+        nperseg=nperseg, noverlap=noverlap, nfft=nperseg,
+        detrend=False, scaling="density", mode="psd",
+    )
+    Sxx_db = 10.0 * np.log10(np.maximum(Sxx, np.finfo(float).eps))
+
+    if fmax is not None:
+        fmask  = f_ax <= fmax
+        f_ax   = f_ax[fmask]
+        Sxx_db = Sxx_db[fmask, :]
+    f_khz = f_ax * 1e-3
+
+    # shift spectrogram time axis to match the input time array
+    t_spec = t_spec + t[0]
+
+    tmask    = (t_spec >= t0) & (t_spec <= t1)
+    Sxx_view = Sxx_db[:, tmask] if tmask.any() else Sxx_db
+    vmax     = np.percentile(Sxx_view, 99.5)
+    vmin     = vmax - dyn_range_db
+
+    fig = plt.figure(figsize=fig_size, dpi=dpi)
+    gs  = GridSpec(2, 2, figure=fig,
+                   height_ratios=[1, 2.0],
+                   width_ratios=[1, 0.03],
+                   hspace=0.00, wspace=0.05)
+
+    ax_spec = fig.add_subplot(gs[1, 0])
+    ax_wave = fig.add_subplot(gs[0, 0], sharex=ax_spec)
+    ax_cbar = fig.add_subplot(gs[1, 1])
+
+    ax_wave.plot(t, x_norm, color="steelblue", lw=0.6, rasterized=True)
+    ax_wave.set_ylabel("Amplitude (norm.)")
+    ax_wave.set_xlim(t0, t1)
+    ax_wave.set_ylim(-y_lim, y_lim)
+    ax_wave.tick_params(axis="x", which="both", bottom=False, labelbottom=False)
+    ax_wave.grid(True, ls=":", alpha=0.4)
+    if title:
+        ax_wave.set_title(title, fontsize=11)
+
+    im = ax_spec.pcolormesh(
+        t_spec, f_khz, Sxx_db,
+        shading="auto", cmap="magma", vmin=vmin, vmax=vmax,
+        rasterized=True,
+    )
+    ax_spec.set_ylim(0, f_khz[-1])
+    ax_spec.set_xlim(t0, t1)
+    ax_spec.set_xlabel("Time (s)")
+    ax_spec.set_ylabel("Frequency (kHz)")
+    ax_spec.grid(True, ls=":", alpha=0.3, color="white")
+
+    cbar = fig.colorbar(im, cax=ax_cbar)
+    cbar.set_label("PSD (dB re. 1 unit²/Hz)", fontsize=9)
+    cbar.ax.tick_params(labelsize=8)
+    cbar.set_ticks(np.linspace(vmin, vmax, 5))
+    cbar.set_ticklabels([f"{v:.0f}" for v in np.linspace(vmin, vmax, 5)])
+
+    fig.tight_layout()
+
+    if savepath is not None:
+        fig.savefig(savepath, dpi=dpi, bbox_inches="tight")
+
+    return fig, (ax_wave, ax_spec)
 
 
 def plot_onset_zoom(files, reader_fn, zoom_us=200,

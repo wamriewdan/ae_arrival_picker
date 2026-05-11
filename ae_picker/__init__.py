@@ -15,6 +15,7 @@ from .plot import (
     plot_comparison,
     plot_onset_zoom,
     plot_sta_lta_overlay,
+    plot_wave_and_spectrogram,
 )
 
 __all__ = [
@@ -30,6 +31,7 @@ __all__ = [
     "plot_comparison",
     "plot_onset_zoom",
     "plot_sta_lta_overlay",
+    "plot_wave_and_spectrogram",
     "pick_file",
     "run",
 ]

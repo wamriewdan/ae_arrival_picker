@@ -103,7 +103,7 @@ def aic_picker(amp, search_start=0, search_end=None):
         var_pre  = np.var(x[: k + 1])
         var_post = np.var(x[k + 1 :])
         if var_pre > 0 and var_post > 0:
-            aic[k] = (k + 1) * np.log(var_pre) + (N - k - 2) * np.log(var_post)
+            aic[k] = (k + 1) * np.log(var_pre) + (N - k - 1) * np.log(var_post)
 
     seg = aic[search_start : search_end + 1]
     if not np.any(~np.isnan(seg)):
@@ -391,7 +391,7 @@ def stalta_picker(amp, time, sta_s, lta_s, threshold=3.0, search_start=0):
     ratio = np.zeros(N)
     for i in range(lta_n, N):
         sta = np.mean(x[i - sta_n : i])
-        lta = np.mean(x[i - lta_n : i - sta_n])
+        lta = np.mean(x[i - lta_n : i])
         ratio[i] = sta / lta if lta > 0 else 0.0
 
     pick_idx = None
