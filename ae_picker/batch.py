@@ -49,7 +49,7 @@ def pick_file(filepath, signal_type,
               refined_search_start_frac=0.0,
               envelope_k_high=6.0, envelope_k_low=2.5,
               prepend_duration_s=50e-6,
-              plot=True, save_plots=True, output_dir=None):
+              plot=True, save_plots=True, show_plots=True, output_dir=None):
     """
     Pick all channels in a single AE waveform file.
 
@@ -92,6 +92,10 @@ def pick_file(filepath, signal_type,
     save_plots : bool
         If ``True`` and *plot* is ``True``, the figure is saved to
         *output_dir* as ``<stem>_picks.png``.
+    show_plots : bool
+        If ``True``, display the generated figure interactively.  Set this
+        to ``False`` for command-line or batch workflows that only need
+        files written to disk.
     output_dir : Path or None
         Directory for saved figures.  Required when *save_plots* is ``True``.
 
@@ -227,7 +231,8 @@ def pick_file(filepath, signal_type,
         fig = plot_channels(meta, channels, picks_for_plot,
                             signal_type=signal_type, savepath=savepath)
         import matplotlib.pyplot as plt
-        plt.show()
+        if show_plots:
+            plt.show()
         plt.close(fig)
 
     return results
@@ -236,7 +241,7 @@ def pick_file(filepath, signal_type,
 def run(data_dir, signal_dirs=("unfiltered_signals", "filtered_signals"),
         output_dir=None, pickers=("aic", "refined_stalta"),
         prepend_duration_s=50e-6,
-        plot=True, save_plots=True):
+        plot=True, save_plots=True, show_plots=True):
     """
     Batch-process all ``.txt`` waveform files found under *data_dir*.
 
@@ -256,13 +261,16 @@ def run(data_dir, signal_dirs=("unfiltered_signals", "filtered_signals"),
         Where to write ``picks_summary.csv`` and PNG figures.
         Defaults to ``data_dir / 'picks_output'``.
     pickers : tuple of str
-        Any subset of ``('aic', 'aic_prepend', 'energy', 'stalta')``.
+        Any subset of
+        ``('aic', 'aic_prepend', 'envelope', 'stalta', 'refined_stalta')``.
     prepend_duration_s : float
         Noise prepend duration passed to ``prepend_noise_aic_picker``.
     plot : bool
         Produce a per-file waveform plot.
     save_plots : bool
         Save each figure to *output_dir*.
+    show_plots : bool
+        Display plots interactively while processing.
 
     Returns
     -------
@@ -302,6 +310,7 @@ def run(data_dir, signal_dirs=("unfiltered_signals", "filtered_signals"),
                              pickers=pickers,
                              prepend_duration_s=prepend_duration_s,
                              plot=plot, save_plots=save_plots,
+                             show_plots=show_plots,
                              output_dir=output_dir)
             all_results.extend(rows)
 

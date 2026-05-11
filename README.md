@@ -1,51 +1,69 @@
-# ae_picker
+# ae-picker
 
-**ae_picker** is an open-source Python package for automatic first-arrival time picking in acoustic emission (AE) and microseismic waveform data.
+`ae-picker` is a Python package for automatic first-arrival time picking in
+acoustic emission (AE) and microseismic waveform data.
 
-It provides three complementary picking algorithms, format-agnostic readers, and publication-quality plots — all in a clean, pip-installable package designed to be adapted to any AE dataset.
-
----
+It provides multiple picking algorithms, format-agnostic readers, batch
+processing helpers, and plotting utilities in a package that can be installed
+from PyPI or directly from source.
 
 ## Features
 
-- **Three picking algorithms** — AIC (Maeda 1985), energy-onset ratio, and STA/LTA
-- **Format-agnostic design** — pickers operate on NumPy arrays; plug in your own reader for any file format
-- **Batch processing** — scan a directory tree and export all picks to a single CSV
-- **Publication-quality plots** — per-file channel plots, scatter comparison, and onset zoom browser
-- **Demo notebook** — end-to-end walkthrough using real AE data from borehole monitoring experiments
-
----
+- AIC, envelope-based, and STA/LTA picking workflows
+- Readers for the repository's filtered and unfiltered waveform formats
+- Batch processing that writes a single `picks_summary.csv`
+- Plot helpers for waveform review and picker comparison
+- A command-line interface exposed as `ae-picker`
 
 ## Installation
+
+Install from PyPI after the package has been published:
+
+```bash
+pip install ae-picker
+```
+
+Install from a local checkout:
 
 ```bash
 git clone https://github.com/wamriewdan/ae_arrival_picker
 cd ae_arrival_picker
-pip install -e .
+pip install .
 ```
 
-For running the demo notebook, also install the optional dependencies:
+For development:
 
 ```bash
 pip install -e ".[dev]"
 ```
 
----
+If you want the optional ObsPy-backed recursive STA/LTA trigger:
+
+```bash
+pip install "ae-picker[obspy]"
+```
 
 ## Quick start
+
+Use the Python API:
 
 ```python
 from ae_picker import run
 
-# Batch-pick all .txt files in a data directory
-df = run("path/to/your/data_dir")
-# → saves picks_output/picks_summary.csv and one PNG per file
+df = run("path/to/your/data_dir", plot=False, save_plots=False)
+print(df.head())
+```
+
+Use the CLI:
+
+```bash
+ae-picker path/to/your/data_dir --save-plots
 ```
 
 Single-file usage:
 
 ```python
-from ae_picker import read_unfiltered, aic_picker, plot_channels
+from ae_picker import aic_picker, plot_channels, read_unfiltered
 
 meta, channels = read_unfiltered("my_ae_file.txt")
 
@@ -53,116 +71,59 @@ aic_picks = []
 for ch in channels:
     idx, _ = aic_picker(ch["amp"], search_start=1, search_end=10)
     aic_picks.append(idx)
-    print(f"P arrival at {ch['time'][idx]*1e6:.1f} µs")
+    print(f"P arrival at {ch['time'][idx] * 1e6:.1f} us")
 
 fig = plot_channels(meta, channels, picks={"AIC": aic_picks})
 fig.savefig("picks.png", dpi=150)
 ```
 
----
+## Project layout
 
-## Supported file formats
-
-| Format | Channels | Description |
-|---|---|---|
-| `unfiltered` | 4 | 5-line metadata header; tab-separated time/amplitude pairs; record starts at P onset |
-| `filtered` | 2 | 1-line column header; centred at t = 0; ±250 µs window |
-
-Both formats return the same `(meta, channels)` structure — see `ae_picker/io.py` for the full specification.
-
-**Extending to your own dataset:** Write a reader function that returns `(meta_dict, channels_list)` where each channel is `{'time': ndarray, 'amp': ndarray}`.  All pickers and plotting functions will work immediately with your data.
-
----
-
-## Algorithms
-
-### AIC (Akaike Information Criterion)
-*Maeda (1985)* — treats the waveform as two concatenated stationary Gaussian processes and finds the split point that minimises:
-
-```
-AIC(k) = k · log(var(x[0:k])) + (N−k−1) · log(var(x[k+1:N]))
+```text
+ae_arrival_picker/
+|-- ae_picker/
+|   |-- __init__.py
+|   |-- __main__.py
+|   |-- batch.py
+|   |-- cli.py
+|   |-- io.py
+|   |-- pickers.py
+|   `-- plot.py
+|-- notebooks/
+|-- pyproject.toml
+|-- README.md
+`-- LICENSE
 ```
 
-**Best for:** Records where the P onset is the dominant variance change.
-**Key parameter:** `search_end` — restrict to the onset region to prevent drift to later coda features.
+## Publishing to PyPI
 
-### Energy-onset ratio
-Finds the first sample where instantaneous energy exceeds a multiple of the pre-onset background energy:
+`pip install ae-picker` only works for end users after the project is
+published under that distribution name on PyPI.
 
-```
-amp[i]² > threshold × mean(amp[:n_noise]²)
-```
+Build the distribution files:
 
-**Best for:** Short records that start immediately at the onset (leaving too few samples for AIC).
-**Key parameters:** `noise_window_s`, `threshold`.
-
-### STA/LTA
-Classical Short-Term Average / Long-Term Average ratio trigger:
-
-```
-ratio[i] = mean(|amp[i-sta_n : i]|) / mean(|amp[i-lta_n : i-sta_n]|)
+```bash
+python -m build
 ```
 
-Pick fires at the first sample where `ratio ≥ threshold`.
+Upload them:
 
-**Best for:** Longer continuous records; widely used in seismology.
-**Key parameters:** `sta_s`, `lta_s`, `threshold`.
-
----
-
-## Demo notebook
-
-`notebooks/demo_maria_project.ipynb` walks through the full workflow using AE data from borehole monitoring experiments (Maria dataset, KAUST RockGem group):
-
-1. Load and inspect both file formats
-2. Pick a single file with each algorithm
-3. Batch-process all files
-4. Export results to CSV
-5. Compare computed picks against reference header picks
-
-Set `DATA_DIR` in the second cell to the folder containing your `unfiltered_signals/` and `filtered_signals/` subdirectories before running.
-
----
-
-## Project structure
-
-```
-ae_picker/
-├── ae_picker/
-│   ├── __init__.py    # public API exports
-│   ├── io.py          # file readers
-│   ├── pickers.py     # AIC, energy-onset, STA/LTA
-│   ├── plot.py        # visualisation helpers
-│   └── batch.py       # pick_file() and run()
-├── notebooks/
-│   └── demo_maria_project.ipynb
-├── pyproject.toml
-├── README.md
-└── .gitignore
+```bash
+python -m twine upload dist/*
 ```
 
----
+If `ae-picker` is already taken on PyPI, you will need to choose a different
+distribution name. The Python import can still remain `ae_picker`.
 
-## Citation
+For the repository's exact GitHub Actions Trusted Publishing setup, see
+`RELEASING.md`.
 
-If you use **ae_picker** in your research, please cite:
+For a safe pre-release check, the repo also includes a separate manual
+TestPyPI workflow.
 
-> Wamriew, D. (2026). *ae_picker: first-arrival time picking for acoustic emission waveforms*. GitHub. https://github.com/wamriewdan/ae_arrival_picker
-
-the underlying AIC algorithm:
-
-> Maeda, N. (1985). A method for reading and checking phase times in auto-processing system of seismic wave data. *Zisin (Journal of the Seismological Society of Japan)*, 38, 365–379.
-
-and the STA/LTA method:
-
-> Allen, R. (1978). Automatic earthquake recognition and timing from single traces. *Bulletin of the Seismological Society of America*, 68(5), 1521–1532.
-
-and its modern implementation context:
-
-> Beyreuther, M., Barsch, R., Krischer, L., Megies, T., Behr, Y., & Wassermann, J. (2010). ObsPy: A Python toolbox for seismology. *Seismological Research Letters*, 81(3), 530–533.
-
----
+Routine validation is handled by a separate CI workflow that runs on every
+push and pull request.
 
 ## License
 
-MIT — see `LICENSE` for details.
+MIT
