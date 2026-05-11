@@ -48,4 +48,4 @@ __all__ = [
 ]
 
 __version__ = "0.2.0"
-__author__  = "RockGem Group, KAUST"
+__author__  = "Daniel Wamriew, wamriewdan@gmail.com"
