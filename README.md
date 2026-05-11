@@ -6,6 +6,71 @@ acoustic emission (AE) and microseismic waveform data.
 It includes waveform readers, multiple picking algorithms, batch processing,
 and plotting helpers for review and comparison.
 
+## Algorithm notes
+
+### AIC picker
+
+The AIC picker treats the waveform as two segments split at sample `k` and
+selects the split that minimizes the Akaike Information Criterion:
+
+```text
+AIC(k) = k * log(var(x[0:k])) + (N - k - 1) * log(var(x[k+1:N]))
+```
+
+Short explanation:
+
+- Before the arrival, the signal is assumed to behave like background noise.
+- After the arrival, the variance changes because the waveform contains the
+  first motion and subsequent energy.
+- The best onset is the sample where this two-segment model fits best.
+
+### Refined STA/LTA picker
+
+The refined STA/LTA picker in this package is a two-stage method:
+
+1. A recursive STA/LTA trigger finds a coarse onset window.
+2. A Hilbert-envelope refinement step walks back to the earliest persistent
+   onset inside that window.
+
+The STA/LTA trigger is based on the ratio
+
+```text
+CFT(i) = STA(i) / LTA(i)
+```
+
+where the fallback implementation in this package uses
+
+```text
+STA(i) = mean(|x[i-nsta:i]|)
+LTA(i) = mean(|x[i-nlta:i-nsta]|)
+```
+
+and triggers when `CFT(i)` rises above the on-threshold and ends when it falls
+below the off-threshold.
+
+The envelope-refinement stage uses the analytic-signal envelope
+
+```text
+e(i) = |H{x}(i)|
+```
+
+and robust noise statistics
+
+```text
+sigma ~= 1.4826 * MAD(e_noise)
+thr_high = median(e_noise) + k_high * sigma
+thr_low  = median(e_noise) + k_low  * sigma
+```
+
+Short explanation:
+
+- STA/LTA provides a stable first trigger for emergent arrivals.
+- The envelope stage then refines that trigger by requiring a persistent rise
+  above a lower threshold, which improves onset timing.
+- In this repository, the "refined STA/LTA" picker is this package-specific
+  combination of recursive STA/LTA and envelope-based onset refinement.
+
+
 ## Features
 
 - AIC, envelope-based, and STA/LTA picking workflows
@@ -73,6 +138,7 @@ fig = plot_channels(meta, channels, picks={"AIC": aic_picks})
 fig.savefig("picks.png", dpi=150)
 ```
 
+
 ## Batch input layout
 
 The batch runner expects a root directory containing one or both of these
@@ -86,6 +152,19 @@ your_data_dir/
 
 `run()` and `ae-picker` scan those folders, infer the signal type from the
 folder name, and write results to `picks_output/picks_summary.csv` by default.
+
+## References
+
+1. Maeda, N. (1985). *A Method for Reading and Checking Phase Time in
+   Auto-Processing System of Seismic Wave Data*. Zisin, 38(3), 365-379.
+   https://doi.org/10.4294/zisin1948.38.3_365
+2. Allen, R. V. (1978). *Automatic Earthquake Recognition and Timing from
+   Single Traces*. Bulletin of the Seismological Society of America, 68(5),
+   1521-1532. https://doi.org/10.1785/BSSA0680051521
+3. Beyreuther, M., Barsch, R., Krischer, L., Megies, T., Behr, Y., and
+   Wassermann, J. (2010). *ObsPy: A Python Toolbox for Seismology*.
+   Seismological Research Letters, 81(3), 530-533.
+   https://doi.org/10.1785/gssrl.81.3.530
 
 ## License
 
