@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ae-picker"
-version = "0.2.1"
+version = "0.2.0"
 description = "First-arrival time picking for acoustic emission and microseismic waveforms"
 readme = "README.md"
 license = { file = "LICENSE" }
