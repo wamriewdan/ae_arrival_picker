@@ -24,10 +24,13 @@ Thumbs.db
 
 # Claude Code
 .claude/
+CLAUDE.md
 
 # IDE
 .vscode/
 .idea/
 *.code-workspace
 
-# 
+# Reference files
+sta_lta_utils.py
+sanit
