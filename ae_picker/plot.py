@@ -586,6 +586,175 @@ def plot_wave_and_spectrogram(amp, time,
     return fig, (ax_wave, ax_spec)
 
 
+def plot_section(channels, picks=None,
+                 offsets_m=None,
+                 time_axis="x",
+                 wiggle_scale=None,
+                 normalise="trace",
+                 clip=0.95,
+                 savepath=None):
+    """
+    Multi-trace wiggle section plot for refraction surveys and PS / VSP logs.
+
+    Each channel in *channels* is drawn as a wiggle trace.  Positive lobes
+    are filled (SEG convention).  Pick times, when supplied, are marked as
+    scatter markers at the corresponding trace position.
+
+    Parameters
+    ----------
+    channels : list of dict
+        Reader output — each dict has ``'time'`` (np.ndarray, seconds) and
+        ``'amp'`` (np.ndarray).
+    picks : dict[str, list[float | None]] or None
+        Named pick times in **seconds**, one value per trace.  ``None``
+        entries are silently skipped.  Example::
+
+            picks = {'AIC': [0.012, 0.015, None, 0.018]}
+
+    offsets_m : array-like or None
+        Source-receiver offsets or depths in metres, one per trace.
+        ``None`` → sequential integer indices ``0, 1, 2, …``.
+    time_axis : {'x', 'y'}
+        ``'x'`` — time runs horizontally (refraction convention, offset on
+        y-axis).  ``'y'`` — time runs vertically (PS log / VSP convention,
+        offset on x-axis).
+    wiggle_scale : float or None
+        Peak-to-peak excursion of the largest trace in axis units.
+        ``None`` → auto: maximum excursion = 80 % of the median trace
+        spacing.
+    normalise : {'trace', 'global', 'none'}
+        ``'trace'`` — each trace normalised independently.
+        ``'global'`` — all traces share the same normalisation factor.
+        ``'none'`` — raw amplitudes (normalisation applied only via
+        *wiggle_scale*).
+    clip : float
+        Amplitude clip percentile in ``(0, 1]``.  Samples beyond this
+        percentile of ``|amp|`` are clipped before normalisation and
+        display.  Default: 0.95.
+    savepath : str, Path, or None
+        If provided, the figure is saved to this path at 150 dpi.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+    """
+    n_traces = len(channels)
+    if n_traces == 0:
+        raise ValueError("channels is empty.")
+
+    # ── offsets ───────────────────────────────────────────────────────────────
+    if offsets_m is None:
+        offsets = np.arange(n_traces, dtype=float)
+    else:
+        offsets = np.asarray(offsets_m, dtype=float)
+        if len(offsets) != n_traces:
+            raise ValueError(
+                f"offsets_m has {len(offsets)} entries but channels has {n_traces}."
+            )
+
+    # ── trace spacing (for auto wiggle scale) ─────────────────────────────────
+    if n_traces > 1:
+        spacing = float(np.median(np.abs(np.diff(offsets))))
+        if spacing == 0:
+            spacing = 1.0
+    else:
+        spacing = 1.0
+
+    # ── clip + normalise amplitudes ───────────────────────────────────────────
+    clipped = []
+    for ch in channels:
+        a = np.asarray(ch["amp"], dtype=float).copy()
+        if clip < 1.0:
+            c = np.percentile(np.abs(a), clip * 100)
+            if c > 0:
+                a = np.clip(a, -c, c)
+        clipped.append(a)
+
+    if normalise == "global":
+        global_max = max((np.max(np.abs(a)) for a in clipped), default=1.0)
+        global_max = global_max if global_max > 0 else 1.0
+        normed = [a / global_max for a in clipped]
+    elif normalise == "trace":
+        normed = []
+        for a in clipped:
+            mx = np.max(np.abs(a))
+            normed.append(a / mx if mx > 0 else a)
+    else:
+        normed = clipped
+
+    # ── wiggle scale ──────────────────────────────────────────────────────────
+    if wiggle_scale is None:
+        wiggle_scale = 0.8 * spacing
+
+    # ── figure setup ─────────────────────────────────────────────────────────
+    if time_axis not in ("x", "y"):
+        raise ValueError(f"time_axis must be 'x' or 'y', got {time_axis!r}.")
+
+    fig_w = 10 if time_axis == "x" else 6
+    fig_h = 6  if time_axis == "x" else 10
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+
+    pick_names   = list(picks.keys()) if picks else []
+    pick_colours = [_PICK_COLOURS[i % len(_PICK_COLOURS)] for i in range(len(pick_names))]
+    pick_markers = ["o", "^", "s", "D", "v", "P"]
+
+    # ── draw traces ───────────────────────────────────────────────────────────
+    for i in range(n_traces):
+        t   = np.asarray(channels[i]["time"], dtype=float)
+        amp = normed[i] * wiggle_scale
+        pos = offsets[i]
+
+        if time_axis == "x":
+            # time on x-axis, offset (+ wiggle) on y-axis
+            ax.plot(t, pos + amp, color="black", lw=0.6)
+            ax.fill_between(t, pos, pos + amp, where=(amp >= 0),
+                            color="black", alpha=0.7)
+        else:
+            # time on y-axis, offset (+ wiggle) on x-axis
+            ax.plot(pos + amp, t, color="black", lw=0.6)
+            ax.fill_betweenx(t, pos, pos + amp, where=(amp >= 0),
+                             color="black", alpha=0.7)
+
+    # ── draw picks ────────────────────────────────────────────────────────────
+    for pname, pcolour, pmark in zip(pick_names, pick_colours, pick_markers):
+        ptimes = picks[pname]
+        scatter_a, scatter_b = [], []   # (time, offset) pairs
+        for i, pt in enumerate(ptimes):
+            if pt is not None and i < n_traces:
+                scatter_a.append(float(pt))
+                scatter_b.append(offsets[i])
+        if scatter_a:
+            if time_axis == "x":
+                ax.scatter(scatter_a, scatter_b,
+                           color=pcolour, marker=pmark, s=40, zorder=5,
+                           label=pname)
+            else:
+                ax.scatter(scatter_b, scatter_a,
+                           color=pcolour, marker=pmark, s=40, zorder=5,
+                           label=pname)
+
+    # ── labels and decorations ────────────────────────────────────────────────
+    if time_axis == "x":
+        ax.set_xlabel("Time (s)")
+        ax.set_ylabel("Offset (m)")
+    else:
+        ax.set_xlabel("Offset (m)")
+        ax.set_ylabel("Time (s)")
+        ax.invert_yaxis()
+
+    ax.set_title("Wiggle section")
+    if pick_names:
+        ax.legend(fontsize=8, loc="upper right")
+    ax.grid(True, ls=":", alpha=0.4)
+
+    plt.tight_layout()
+
+    if savepath is not None:
+        fig.savefig(savepath, dpi=150, bbox_inches="tight")
+
+    return fig
+
+
 def plot_onset_zoom(files, reader_fn, zoom_us=200,
                     aic_search_end=10, savepath_dir=None):
     """

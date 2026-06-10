@@ -20,6 +20,7 @@ from .pickers import (aic_picker, prepend_noise_aic_picker,
                       envelope_onset_picker,
                       stalta_picker, refined_stalta_picker)
 from .plot    import plot_channels
+from .presets import suggest_parameters
 
 
 # ── internal helpers ──────────────────────────────────────────────────────────
@@ -40,7 +41,8 @@ def _t(ch, idx):
 
 # ── public API ────────────────────────────────────────────────────────────────
 
-def pick_file(filepath, signal_type,
+def pick_file(filepath, signal_type=None,
+              reader_fn=None,
               pickers=("aic", "refined_stalta"),
               aic_search_frac_unfiltered=(0.0005, 0.005),
               aic_search_frac_filtered=(0.30, 0.70),
@@ -56,8 +58,20 @@ def pick_file(filepath, signal_type,
     Parameters
     ----------
     filepath : str or Path
-    signal_type : {'unfiltered', 'filtered'}
-        Determines which reader and default search windows are used.
+    signal_type : {'unfiltered', 'filtered', None}
+        Determines which built-in reader and default AIC search fractions are
+        used when *reader_fn* is ``None``.  When *reader_fn* is provided,
+        *signal_type* is used only as a display label; defaults to
+        ``'custom'`` in that case.
+    reader_fn : callable or None
+        Custom reader with the same contract as ``read_unfiltered`` /
+        ``read_filtered``::
+
+            meta, channels = reader_fn(filepath)
+
+        When provided, the built-in readers are bypassed and *signal_type*
+        is treated as a label only (``'custom'`` if ``None``).  The AIC
+        search fractions default to *aic_search_frac_filtered*.
     pickers : tuple of str
         Any subset of
         ``('aic', 'aic_prepend', 'envelope', 'stalta', 'refined_stalta')``.
@@ -72,8 +86,8 @@ def pick_file(filepath, signal_type,
         for **unfiltered** files.  Default ``(0.0005, 0.005)`` ≈ 1–50 µs
         at 200 kHz — keeps the search in the onset region only.
     aic_search_frac_filtered : tuple (start_frac, end_frac)
-        AIC search window for **filtered** files.  Default ``(0.30, 0.70)``
-        searches the central 40 % of the ±250 µs record.
+        AIC search window for **filtered** files and custom readers.
+        Default ``(0.30, 0.70)`` searches the central 40 % of the record.
     sta_s, lta_s : float
         STA and LTA window lengths for ``stalta_picker`` (seconds).
     stalta_threshold : float
@@ -113,7 +127,13 @@ def pick_file(filepath, signal_type,
     """
     filepath = Path(filepath)
 
-    if signal_type == "unfiltered":
+    if reader_fn is not None:
+        # Custom reader path: signal_type is a label only
+        meta, channels = reader_fn(filepath)
+        if signal_type is None:
+            signal_type = "custom"
+        aic_frac = aic_search_frac_filtered
+    elif signal_type == "unfiltered":
         meta, channels = read_unfiltered(filepath)
         aic_frac = aic_search_frac_unfiltered
     else:
@@ -241,22 +261,24 @@ def pick_file(filepath, signal_type,
 def run(data_dir, signal_dirs=("unfiltered_signals", "filtered_signals"),
         output_dir=None, pickers=("aic", "refined_stalta"),
         prepend_duration_s=50e-6,
-        plot=True, save_plots=True, show_plots=True):
+        plot=True, save_plots=True, show_plots=True,
+        reader_fn=None, file_glob="*.txt", profile=None,
+        sta_s=None, lta_s=None):
     """
-    Batch-process all ``.txt`` waveform files found under *data_dir*.
+    Batch-process waveform files found under *data_dir*.
 
     The function scans each directory listed in *signal_dirs* (relative to
     *data_dir*), infers the signal type from the directory name, and calls
-    ``pick_file`` on every file found.
+    ``pick_file`` on every matching file.
 
     Parameters
     ----------
     data_dir : str or Path
         Root directory containing the signal sub-directories.
     signal_dirs : tuple of str
-        Sub-directory names to process.  Each name must contain either
-        ``'unfiltered'`` or ``'filtered'`` to determine the reader and
-        default AIC window.
+        Sub-directory names to process.  Each name should contain either
+        ``'unfiltered'`` or ``'filtered'`` to determine the built-in reader;
+        when *reader_fn* is provided the name is used only for display.
     output_dir : str, Path, or None
         Where to write ``picks_summary.csv`` and PNG figures.
         Defaults to ``data_dir / 'picks_output'``.
@@ -271,6 +293,24 @@ def run(data_dir, signal_dirs=("unfiltered_signals", "filtered_signals"),
         Save each figure to *output_dir*.
     show_plots : bool
         Display plots interactively while processing.
+    reader_fn : callable or None
+        Custom reader passed directly to ``pick_file``.  When provided,
+        the built-in ``read_unfiltered`` / ``read_filtered`` are bypassed.
+    file_glob : str
+        Glob pattern for selecting files inside each sub-directory.
+        Default ``'*.txt'`` preserves existing behaviour; pass
+        ``'*.segy'`` for refraction surveys.
+    profile : {'ae', 'ps_log', 'refraction', None}
+        When set, ``suggest_parameters`` is called for the first file's
+        sampling rate and its ``sta_s`` / ``lta_s`` values are used as
+        defaults.  Explicitly supplied *sta_s* / *lta_s* override the
+        profile values.
+    sta_s : float or None
+        STA window length (seconds).  ``None`` → profile default if
+        *profile* is set, else ``pick_file``'s own default (5 µs).
+    lta_s : float or None
+        LTA window length (seconds).  ``None`` → profile default if
+        *profile* is set, else ``pick_file``'s own default (50 µs).
 
     Returns
     -------
@@ -284,6 +324,18 @@ def run(data_dir, signal_dirs=("unfiltered_signals", "filtered_signals"),
 
     _type_map = {"unfiltered": "unfiltered", "filtered": "filtered"}
 
+    # ── resolve profile-based STA/LTA defaults ────────────────────────────────
+    _sta_s = sta_s
+    _lta_s = lta_s
+
+    if profile is not None and (_sta_s is None or _lta_s is None):
+        # Use a placeholder fs; suggest_parameters auto-detects from profile.
+        _profile_params = suggest_parameters(fs=1.0, profile=profile)
+        if _sta_s is None:
+            _sta_s = _profile_params["sta_s"]
+        if _lta_s is None:
+            _lta_s = _profile_params["lta_s"]
+
     all_results = []
 
     for sub in signal_dirs:
@@ -293,25 +345,57 @@ def run(data_dir, signal_dirs=("unfiltered_signals", "filtered_signals"),
             continue
 
         signal_type = None
-        for key, val in _type_map.items():
-            if key in sub.lower():
-                signal_type = val
-                break
-        if signal_type is None:
-            print(f"[ae_picker.batch] Cannot infer signal type from '{sub}', skipping.")
-            continue
+        if reader_fn is None:
+            for key, val in _type_map.items():
+                if key in sub.lower():
+                    signal_type = val
+                    break
+            if signal_type is None:
+                print(
+                    f"[ae_picker.batch] Cannot infer signal type from '{sub}', "
+                    f"skipping.  Pass reader_fn to bypass type inference."
+                )
+                continue
 
-        files = sorted(folder.glob("*.txt"))
-        print(f"\n=== {sub} [{signal_type}] ({len(files)} files) ===")
+        files = sorted(folder.glob(file_glob))
+        label = signal_type or "custom"
+        print(f"\n=== {sub} [{label}] ({len(files)} files) ===")
+
+        # When profile is set but STA/LTA not locked yet, refine from first file
+        if profile is not None and sta_s is None and files:
+            try:
+                _first_meta, _first_ch = (
+                    reader_fn(files[0]) if reader_fn
+                    else (read_filtered(files[0]) if signal_type == "filtered"
+                          else read_unfiltered(files[0]))
+                )
+                _dt = float(np.median(np.diff(_first_ch[0]["time"])))
+                _fs = 1.0 / _dt
+                _pp = suggest_parameters(fs=_fs, profile=profile)
+                if sta_s is None:
+                    _sta_s = _pp["sta_s"]
+                if lta_s is None:
+                    _lta_s = _pp["lta_s"]
+            except Exception:
+                pass  # keep the placeholder values computed above
+
+        pick_kwargs = dict(
+            pickers=pickers,
+            prepend_duration_s=prepend_duration_s,
+            plot=plot, save_plots=save_plots,
+            show_plots=show_plots,
+            output_dir=output_dir,
+        )
+        if _sta_s is not None:
+            pick_kwargs["sta_s"] = _sta_s
+        if _lta_s is not None:
+            pick_kwargs["lta_s"] = _lta_s
 
         for fp in files:
             print(f"  {fp.name}")
             rows = pick_file(fp, signal_type,
-                             pickers=pickers,
-                             prepend_duration_s=prepend_duration_s,
-                             plot=plot, save_plots=save_plots,
-                             show_plots=show_plots,
-                             output_dir=output_dir)
+                             reader_fn=reader_fn,
+                             **pick_kwargs)
             all_results.extend(rows)
 
     df = pd.DataFrame(all_results)

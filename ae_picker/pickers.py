@@ -44,7 +44,8 @@ def _moving_average(x, n):
 
 # ── public pickers ────────────────────────────────────────────────────────────
 
-def aic_picker(amp, search_start=0, search_end=None):
+def aic_picker(amp, search_start=0, search_end=None,
+               expected_t0_s=None, search_window_s=None, time=None):
     """
     Maeda (1985) AIC first-arrival picker.
 
@@ -64,9 +65,13 @@ def aic_picker(amp, search_start=0, search_end=None):
         First sample index to consider as a candidate onset.
         Skip at least 1 sample so that the pre-onset variance estimate
         is based on at least one data point.
+        Ignored when ``expected_t0_s``, ``search_window_s``, and ``time``
+        are all provided.
     search_end : int or None
         Last sample index to consider (inclusive).  If ``None``, the
         search extends to ``N − 2``.
+        Ignored when ``expected_t0_s``, ``search_window_s``, and ``time``
+        are all provided.
 
         **Tuning guidance** — restrict this window carefully:
 
@@ -77,6 +82,18 @@ def aic_picker(amp, search_start=0, search_end=None):
         * For centred records (filtered format), use
           ``search_end = int(0.70 * N)`` with
           ``search_start = int(0.30 * N)``.
+
+    expected_t0_s : float or None
+        Expected first-arrival time in seconds.  When provided together
+        with ``search_window_s`` and ``time``, the search window is
+        derived as
+        ``[expected_t0_s − search_window_s, expected_t0_s + search_window_s]``.
+    search_window_s : float or None
+        Half-width of the moveout-guided search window (seconds).
+        Used only when ``expected_t0_s`` and ``time`` are also provided.
+    time : array-like or None
+        Time axis (seconds) corresponding to ``amp``.  Required when
+        ``expected_t0_s`` and ``search_window_s`` are provided.
 
     Returns
     -------
@@ -93,6 +110,15 @@ def aic_picker(amp, search_start=0, search_end=None):
     """
     x = np.asarray(amp, dtype=float)
     N = len(x)
+
+    # ── moveout-guided window overrides ───────────────────────────────────────
+    if expected_t0_s is not None and search_window_s is not None and time is not None:
+        t = np.asarray(time, dtype=float)
+        dt = float(np.median(np.diff(t)))
+        t0_idx = int(round((expected_t0_s - t[0]) / dt))
+        hw     = max(1, int(round(search_window_s / dt)))
+        search_start = max(1, t0_idx - hw)
+        search_end   = min(N - 2, t0_idx + hw)
 
     if search_end is None:
         search_end = N - 2
@@ -410,7 +436,8 @@ def refined_stalta_picker(amp, time,
                            min_persist_ms=0.3,
                            pre_pick_s=50e-6, post_pick_s=200e-6,
                            post_offset_s=500e-6, end_persist_ms=0.05,
-                           search_start=0):
+                           search_start=0,
+                           expected_t0_s=None, search_window_s=None):
     """
     Recursive STA/LTA trigger followed by envelope-refined onset picking.
 
@@ -462,6 +489,14 @@ def refined_stalta_picker(amp, time,
         filtered records centred at t=0 where arrivals cannot precede a known
         index (e.g. pass the index of t=0 to prevent pre-onset false triggers).
         Default: 0 (no restriction).
+    expected_t0_s : float or None
+        Expected first-arrival time in seconds.  When provided together with
+        ``search_window_s``, triggers whose onset falls outside
+        ``[expected_t0_s − search_window_s, expected_t0_s + search_window_s]``
+        are discarded.  Default: ``None`` (no moveout constraint).
+    search_window_s : float or None
+        Half-width of the moveout-guided acceptance window (seconds).
+        Used only when ``expected_t0_s`` is also provided.
 
     Returns
     -------
@@ -508,6 +543,15 @@ def refined_stalta_picker(amp, time,
 
     # Discard triggers that fired before the allowed search window
     raw_triggers = [tr for tr in raw_triggers if tr[0] >= search_start]
+
+    # Discard triggers outside the moveout-guided acceptance window
+    if expected_t0_s is not None and search_window_s is not None:
+        t0_lo = expected_t0_s - search_window_s
+        t0_hi = expected_t0_s + search_window_s
+        raw_triggers = [
+            tr for tr in raw_triggers
+            if t0_lo <= float(t[min(tr[0], N - 1)]) <= t0_hi
+        ]
 
     if not raw_triggers:
         return None, cft, raw_triggers
