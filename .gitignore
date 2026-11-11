@@ -13,6 +13,7 @@ __pycache__/
 dist/
 build/
 .eggs/
+.history/
 
 # Jupyter
 .ipynb_checkpoints/
