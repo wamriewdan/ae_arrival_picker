@@ -147,3 +147,125 @@ def read_filtered(filepath):
         })
 
     return meta, channels
+
+
+def read_segy(filepath, component=None):
+    """
+    Read a SEG-Y file and return the standard ``(meta, channels)`` structure.
+
+    Each trace in the file becomes one entry in *channels*.  The time axis
+    is reconstructed from the trace header sample interval.
+
+    Parameters
+    ----------
+    filepath : str or Path
+    component : str or None
+        Optional label stored in ``meta['component']`` (e.g. ``'Z'``).
+        Has no effect on the data returned.
+
+    Returns
+    -------
+    meta : dict
+        Keys: ``filename``, ``format`` (``'segy'``), ``n_traces``,
+        ``dt_s`` (sample interval in seconds), ``n_samples``,
+        and ``component`` (when provided).
+    channels : list of dict
+        One entry per trace, each with ``'time'`` (np.ndarray, seconds)
+        and ``'amp'`` (np.ndarray, counts or field units).
+
+    Raises
+    ------
+    ImportError
+        When ObsPy is not installed.
+    """
+    try:
+        from obspy import read as _obspy_read
+    except ImportError:
+        raise ImportError(
+            "ObsPy is required to read SEG-Y files. "
+            "Install it with: pip install ae-picker[obspy]"
+        )
+
+    filepath = Path(filepath)
+    st = _obspy_read(str(filepath), format="SEGY")
+
+    dt_s      = st[0].stats.delta
+    n_samples = st[0].stats.npts
+    t_axis    = np.arange(n_samples, dtype=float) * dt_s
+
+    channels = []
+    for tr in st:
+        channels.append({
+            "time": t_axis.copy(),
+            "amp":  tr.data.astype(float),
+        })
+
+    meta = {
+        "filename": filepath.stem,
+        "format":   "segy",
+        "n_traces": len(st),
+        "dt_s":     dt_s,
+        "n_samples": n_samples,
+    }
+    if component is not None:
+        meta["component"] = component
+
+    return meta, channels
+
+
+def read_mseed(filepath):
+    """
+    Read a miniSEED file and return the standard ``(meta, channels)`` structure.
+
+    Each trace in the stream becomes one entry in *channels*.
+
+    Parameters
+    ----------
+    filepath : str or Path
+
+    Returns
+    -------
+    meta : dict
+        Keys: ``filename``, ``format`` (``'mseed'``), ``n_traces``,
+        and per-trace ``network``, ``station``, ``channel`` from the
+        first trace's stats.
+    channels : list of dict
+        One entry per trace, each with ``'time'`` (np.ndarray, seconds
+        from trace start) and ``'amp'`` (np.ndarray).
+
+    Raises
+    ------
+    ImportError
+        When ObsPy is not installed.
+    """
+    try:
+        from obspy import read as _obspy_read
+    except ImportError:
+        raise ImportError(
+            "ObsPy is required to read miniSEED files. "
+            "Install it with: pip install ae-picker[obspy]"
+        )
+
+    filepath = Path(filepath)
+    st = _obspy_read(str(filepath), format="MSEED")
+
+    channels = []
+    for tr in st:
+        dt_s = tr.stats.delta
+        n    = tr.stats.npts
+        channels.append({
+            "time": np.arange(n, dtype=float) * dt_s,
+            "amp":  tr.data.astype(float),
+        })
+
+    first = st[0].stats
+    meta = {
+        "filename":  filepath.stem,
+        "format":    "mseed",
+        "n_traces":  len(st),
+        "network":   first.network,
+        "station":   first.station,
+        "channel":   first.channel,
+    }
+
+    return meta, channels
