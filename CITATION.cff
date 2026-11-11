@@ -6,7 +6,7 @@ authors:
   - given-names: "Daniel"
     family-names: "Wamriew"
     email: "wamriewdan@gmail.com"
-version: "0.2.0"
+version: "0.3.0"
 abstract: "A Python package for automatic first-arrival time picking in acoustic emission and microseismic waveform data."
 keywords:
   - acoustic emission

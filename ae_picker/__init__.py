@@ -58,5 +58,5 @@ __all__ = [
     "flag_outlier_picks",
 ]
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 __author__ = "Daniel Wamriew, wamriewdan@gmail.com"
